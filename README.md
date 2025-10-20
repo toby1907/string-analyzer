@@ -16,12 +16,12 @@ A powerful RESTful API service built with FastAPI and PostgreSQL that analyzes s
 
 - Python 3.8+
 - PostgreSQL database
-- pip (Python package manager)
+- pip install -r requirements.txt
 
 ### Local Development
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/toby1907/string-analyzer.git
    cd string-analyzer
    ```
