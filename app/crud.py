@@ -1,7 +1,10 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, Integer, Text  # Add Integer import here
 from typing import List, Optional, Dict
 from . import models, schemas
+import logging
+
+logger = logging.getLogger(__name__)
 
 class StringAnalysisCRUD:
     @staticmethod
@@ -39,10 +42,14 @@ class StringAnalysisCRUD:
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
         word_count: Optional[int] = None,
-        contains_character: Optional[str] = None
-    ):
+        contains_character: Optional[str] = None,
+        contains_text: Optional[str] = None  ):
+        
         query = db.query(models.StringAnalysis)
         
+        print(f"🔍 CRUD called with filters: {locals()}")
+        
+        # Existing filters...
         if is_palindrome is not None:
             query = query.filter(models.StringAnalysis.is_palindrome == is_palindrome)
         
@@ -57,8 +64,12 @@ class StringAnalysisCRUD:
             
         if contains_character is not None and len(contains_character) == 1:
             query = query.filter(
-                models.StringAnalysis.character_frequency_map[contains_character].astext.cast(Integer) > 0
+                models.StringAnalysis.character_frequency_map[contains_character].isnot(None)
             )
+        
+        # NEW: Handle text content search
+        if contains_text is not None:
+            query = query.filter(models.StringAnalysis.value.contains(contains_text))
         
         total_count = query.count()
         analyses = query.offset(skip).limit(limit).all()

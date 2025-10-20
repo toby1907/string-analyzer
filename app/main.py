@@ -23,9 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 @app.get("/")
-async def root():
-    return {"message": "successfully created a post in heroku"} 
+def root():
+    return {"message": "String Analyzer Service is running!"}
 
 @app.post("/strings", response_model=schemas.StringAnalysisResponse, status_code=status.HTTP_201_CREATED)
 def create_analyze_string(
@@ -61,6 +62,95 @@ def create_analyze_string(
         "created_at": analysis.created_at
     }
 
+
+@app.get("/strings/filter-by-natural-language", response_model=schemas.NaturalLanguageResponse)
+def filter_by_natural_language(
+    query: str = Query(..., description="Natural language query string"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """Filter strings using natural language queries"""
+    try:
+        print(f"🎯 Received natural language query: '{query}'")
+        
+        filters = natural_language.NaturalLanguageParser.parse_query(query)
+        
+        print(f"🔍 Parsed filters: {filters}")
+        
+        if not natural_language.NaturalLanguageParser.validate_filters(filters):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Query parsed but resulted in conflicting filters"
+            )
+        
+        # Check if we have any strings in the database at all
+        total_strings = db.query(models.StringAnalysis).count()
+        print(f"📊 Total strings in database: {total_strings}")
+        
+        if total_strings == 0:
+            return {
+                "data": [],
+                "count": 0,
+                "interpreted_query": {
+                    "original": query,
+                    "parsed_filters": filters,
+                    "note": "No strings in database"
+                }
+            }
+        
+        analyses, total_count = crud.StringAnalysisCRUD.get_all_analyses(
+            db=db,
+            skip=skip,
+            limit=limit,
+            **filters
+        )
+        
+        print(f"✅ Query executed. Found {total_count} matching strings")
+        
+        response_data = {
+            "data": [
+                {
+                    "id": analysis.id,
+                    "value": analysis.value,
+                    "properties": {
+                        "length": analysis.length,
+                        "is_palindrome": analysis.is_palindrome,
+                        "unique_characters": analysis.unique_characters,
+                        "word_count": analysis.word_count,
+                        "sha256_hash": analysis.sha256_hash,
+                        "character_frequency_map": analysis.character_frequency_map
+                    },
+                    "created_at": analysis.created_at
+                }
+                for analysis in analyses
+            ],
+            "count": total_count,
+            "interpreted_query": {
+                "original": query,
+                "parsed_filters": filters
+            }
+        }
+        
+        print(f"🎉 Returning {len(response_data['data'])} results")
+        return response_data
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        print(f"❌ ERROR DETAILS:")
+        print(f"   Error type: {type(e).__name__}")
+        print(f"   Error message: {str(e)}")
+        import traceback
+        print(f"   Stack trace:")
+        traceback.print_exc()
+        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to parse natural language query: {str(e)}"
+        )
+        
 @app.get("/strings/{string_value}", response_model=schemas.StringAnalysisResponse)
 def get_string(string_value: str, db: Session = Depends(get_db)):
     """Get analysis for a specific string"""
@@ -148,60 +238,8 @@ def get_all_strings(
         "filters_applied": filters_applied
     }
 
-@app.get("/strings/filter-by-natural-language", response_model=schemas.NaturalLanguageResponse)
-def filter_by_natural_language(
-    query: str = Query(..., description="Natural language query string"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
-):
-    """Filter strings using natural language queries"""
-    try:
-        filters = natural_language.NaturalLanguageParser.parse_query(query)
-        
-        if not natural_language.NaturalLanguageParser.validate_filters(filters):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Query parsed but resulted in conflicting filters"
-            )
-        
-        analyses, total_count = crud.StringAnalysisCRUD.get_all_analyses(
-            db=db,
-            skip=skip,
-            limit=limit,
-            **filters
-        )
-        
-        return {
-            "data": [
-                {
-                    "id": analysis.id,
-                    "value": analysis.value,
-                    "properties": {
-                        "length": analysis.length,
-                        "is_palindrome": analysis.is_palindrome,
-                        "unique_characters": analysis.unique_characters,
-                        "word_count": analysis.word_count,
-                        "sha256_hash": analysis.sha256_hash,
-                        "character_frequency_map": analysis.character_frequency_map
-                    },
-                    "created_at": analysis.created_at
-                }
-                for analysis in analyses
-            ],
-            "count": total_count,
-            "interpreted_query": {
-                "original": query,
-                "parsed_filters": filters
-            }
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unable to parse natural language query: {str(e)}"
-        )
 
+           
 @app.delete("/strings/{string_value}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_string(string_value: str, db: Session = Depends(get_db)):
     """Delete a string analysis"""
@@ -212,10 +250,6 @@ def delete_string(string_value: str, db: Session = Depends(get_db)):
         )
     
     return None
-
-@app.get("/")
-def root():
-    return {"message": "String Analyzer Service is running!"}
 
 @app.get("/health")
 def health_check():
